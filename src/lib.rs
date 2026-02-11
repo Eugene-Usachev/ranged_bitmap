@@ -1,36 +1,37 @@
 #![no_std]
 
 //! # Ranged Bitmap
-//! 
+//!
 //! A high-performance bitmap library.
-//! 
+//!
 //! This library provides efficient bitmap manipulation with a focus on:
 //! - All functions are **constant**
 //! - **Optimized range operations** that work on multiple bits simultaneously
 //! - **`No_std` compatibility** for embedded and bare-metal environments
-//! 
+//!
 //! ## Features
-//! 
+//!
 //! - Fixed-size bitmaps with compile-time size determination
+//! - Flexible bitmaps that grow dynamically as needed
 //! - Efficient range setting, clearing, and checking operations
 //! - All functions are constant
-//! 
+//!
 //! ## Performance
-//! 
+//!
 //! The library is designed with performance as a primary goal:
 //! - Range operations use precomputed lookup tables for optimal bit manipulation
 //! - Bulk operations on full blocks use `memset`-like operations for maximum speed
-//! 
+//!
 //! ## Example
-//! 
+//!
 //! ```rust
 //! use ranged_bitmap::generate_fixed_bit_map_struct;
 //!
 //! generate_fixed_bit_map_struct!(struct BitMap<256>); // Generates a 256-bit bitmap struct wrapper
-//! 
+//!
 //! // Create a 256-bit bitmap
 //! let mut bitmap = BitMap::new();
-//! 
+//!
 //! // Set individual bits
 //! bitmap.set(10);
 //! bitmap.set(20);
@@ -42,7 +43,7 @@
 //! // Set an entire range at once (much faster than individual operations)
 //! bitmap.set_range(50, 100); // Set bits 50-149
 //! bitmap.clear_range(0, 50); // Clear bits 0-49
-//! 
+//!
 //! // Check if a range is completely set or unset
 //! assert!(bitmap.check_range_is_set(50, 100));
 //! assert!(bitmap.check_range_is_unset(0, 50));
@@ -51,7 +52,7 @@
 //! for (index, value) in bitmap.iter_range(40, 20) {
 //!     println!("Bit {}: {}", index, value);
 //! }
-//! 
+//!
 //! // Count set bits
 //! println!("Total set bits: {}", bitmap.count_ones());
 //! println!("Total unset bits: {}", bitmap.count_zeros());
@@ -103,9 +104,11 @@ extern crate alloc;
 
 pub mod base;
 pub(crate) mod fixed;
+pub(crate) mod flex;
 
 pub use base::blocks_number_for_bits;
 pub use fixed::FixedBitMap;
+pub use flex::FlexBitMap;
 
 /// Internal assertion helper for conditional debugging.
 ///
@@ -114,5 +117,9 @@ pub use fixed::FixedBitMap;
 /// for comprehensive bounds checking during development while maintaining
 /// zero overhead in release builds.
 pub(crate) const fn maybe_assert(res: bool, msg: &'static str) {
-    assert!(!cfg!(any(debug_assertions, feature = "more_checks")) || res, "{}", msg);
+    assert!(
+        !cfg!(any(debug_assertions, feature = "more_checks")) || res,
+        "{}",
+        msg
+    );
 }

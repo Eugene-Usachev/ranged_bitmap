@@ -1,11 +1,13 @@
 # Ranged Bitmap
 
-A high-performance bitmap library.
+A high-performance bitmap library with both fixed-size and flexible bitmap implementations.
 
 ## Features
 
 - All functions are **constant**
 - **Optimized range operations** that work on multiple bits simultaneously
+- **Fixed-size bitmaps** with compile-time size determination
+- **Flexible bitmaps** that grow dynamically as needed
 - **No_std compatibility** for embedded and bare-metal environments
 
 ## Performance
@@ -19,6 +21,8 @@ This library is designed with performance as a primary goal:
 - Hardware-accelerated bit counting operations
 
 ## Basic Usage
+
+### Fixed Bitmap (Compile-time size)
 
 ```rust
 use ranged_bitmap::generate_fixed_bit_map_struct;
@@ -52,6 +56,27 @@ for (index, value) in bitmap.iter_range(40, 20) {
 // Count set bits
 println!("Total set bits: {}", bitmap.count_ones());
 println!("Total unset bits: {}", bitmap.count_zeros());
+```
+
+### Flexible Bitmap (Dynamic size)
+
+```rust
+use ranged_bitmap::FlexBitMap;
+
+// Create a flexible bitmap that grows as needed
+let mut bitmap = FlexBitMap::new();
+
+// Automatically grows when setting bits beyond current capacity
+bitmap.set(1000); // Grows to accommodate bit 1000
+bitmap.set_range(2000, 100); // Grows to accommodate the range
+
+// All operations work the same as fixed bitmap
+assert!(bitmap.get(1000));
+assert!(bitmap.check_range_is_set(2000, 100));
+
+// Check current capacity
+println!("Current capacity: {} bits", bitmap.capacity());
+println!("Number of blocks: {}", bitmap.blocks());
 ```
 
 ### Range Operations
