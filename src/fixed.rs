@@ -176,12 +176,6 @@ mod tests {
         let mut bitmap_range = TestBitmap::new();
         let mut bitmap_individual = TestBitmap::new();
 
-        // First set all bits
-        for i in 0..256 {
-            bitmap_range.set(i);
-            bitmap_individual.set(i);
-        }
-
         let test_cases = [
             (0, 1),    // single bit at start
             (10, 5),   // small range in middle
@@ -195,6 +189,12 @@ mod tests {
         ];
 
         for (start, len) in test_cases {
+            // First set all bits
+            for i in 0..256 {
+                bitmap_range.set(i);
+                bitmap_individual.set(i);
+            }
+
             // Clear bits using range operation
             bitmap_range.clear_range(start, len);
 
@@ -222,7 +222,6 @@ mod tests {
     #[test]
     fn test_check_range_is_set_matches_individual_operations() {
         let mut bitmap = TestBitmap::new();
-
         let test_cases = [
             (0, 1),    // single bit at start
             (10, 5),   // small range in middle

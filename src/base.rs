@@ -138,7 +138,7 @@ pub(crate) const fn iter_range(
 const fn update_range_more_than_two_blocks(
     blocks: &mut [usize],
     len: usize,
-    set_bits_for_len: &[usize; usize::BITS as usize],
+    set_bits_for_len: &[usize; usize::BITS as usize + 1],
     start_bit: usize,
     start_block: usize,
     is_set_operation: bool,
@@ -248,11 +248,27 @@ const fn update_range_more_than_two_blocks(
     }
 }
 
+const fn get_ref_by_index<T>(arr: &[T], idx: usize) -> &T {
+    if cfg!(test) {
+        &arr[idx]
+    } else {
+        unsafe { &*arr.as_ptr().add(idx) }
+    }
+}
+
+const fn get_mut_by_index<T>(arr: &mut [T], idx: usize) -> &mut T {
+    if cfg!(test) {
+        &mut arr[idx]
+    } else {
+        unsafe { &mut *arr.as_mut_ptr().add(idx) }
+    }
+}
+
 const fn update_range(
     blocks: &mut [usize],
     start: usize,
     len: usize,
-    set_bits_for_len: &[usize; usize::BITS as usize],
+    set_bits_for_len: &[usize; usize::BITS as usize + 1],
     is_set_operation: bool,
 ) {
     maybe_assert(
@@ -268,195 +284,130 @@ const fn update_range(
     // Because each of these cases has its own algorithm.
 
     let (block, start_bit) = calc_block_and_slot(start);
+    let end = start_bit + len;
 
-    match () {
-        () if len < usize::BITS as usize => {
-            if start_bit + len < usize::BITS as usize {
-                // one block
-                let mask = set_bits_for_len[len] << start_bit;
-                if is_set_operation {
-                    blocks[block] |= mask;
-                } else {
-                    blocks[block] &= mask;
-                }
-            } else {
-                // two blocks
-                let first_block_len = (LAST - start_bit) + 1;
-                let first_mask = set_bits_for_len[first_block_len] << start_bit;
-                let second_mask = set_bits_for_len[len - first_block_len];
+    if end <= usize::BITS as usize {
+        // one block
+        let mask = *get_ref_by_index(set_bits_for_len, len) << start_bit;
 
-                if is_set_operation {
-                    blocks[block] |= first_mask;
-                    blocks[block + 1] |= second_mask;
-                } else {
-                    blocks[block] &= first_mask;
-                    blocks[block + 1] &= second_mask;
-                }
-            }
+        if is_set_operation {
+            *get_mut_by_index(blocks, block) |= mask;
+        } else {
+            *get_mut_by_index(blocks, block) &= mask;
         }
-        () if len == usize::BITS as usize => {
-            if start_bit == 0 {
-                // exactly one full block
-                if is_set_operation {
-                    blocks[block] = set_bits_for_len[LAST];
-                } else {
-                    blocks[block] = 0;
-                }
-            } else {
-                // two blocks
-                let first_block_len = (LAST - start_bit) + 1;
-                let first_mask = set_bits_for_len[first_block_len] << start_bit;
-                let second_mask = set_bits_for_len[len - first_block_len];
+    } else if end <= (usize::BITS * 2) as usize {
+        // two blocks
+        let first_block_len = usize::BITS as usize - start_bit;
+        let second_block_len = len - first_block_len;
+        let first_mask = *get_ref_by_index(set_bits_for_len, first_block_len) << start_bit;
+        let second_mask = *get_ref_by_index(set_bits_for_len, second_block_len);
 
-                if is_set_operation {
-                    blocks[block] |= first_mask;
-                    blocks[block + 1] |= second_mask;
-                } else {
-                    blocks[block] &= first_mask;
-                    blocks[block + 1] &= second_mask;
-                }
-            }
+        if is_set_operation {
+            *get_mut_by_index(blocks, block) |= first_mask;
+            *get_mut_by_index(blocks, block + 1) |= second_mask;
+        } else {
+            *get_mut_by_index(blocks, block) &= first_mask;
+            *get_mut_by_index(blocks, block + 1) &= second_mask;
         }
-        _ => {
-            if start_bit + len < 2 * usize::BITS as usize {
-                // two blocks
-                let first_block_len = usize::BITS as usize - start_bit;
-                let first_mask = set_bits_for_len[first_block_len] << start_bit;
-                let second_mask = set_bits_for_len[len - first_block_len];
+    } else {
+        // many blocks
+        let first_block_len = usize::BITS as usize - start_bit;
+        let remaining = len - first_block_len;
+        let number_of_full_blocks = remaining / usize::BITS as usize;
+        let last_block_len = remaining % usize::BITS as usize;
+        let first_mask = *get_ref_by_index(set_bits_for_len, first_block_len) << start_bit;
 
-                if is_set_operation {
-                    blocks[block] |= first_mask;
-                    blocks[block + 1] |= second_mask;
-                } else {
-                    blocks[block] &= first_mask;
-                    blocks[block + 1] &= second_mask;
-                }
-            } else {
-                // more than two blocks
-                update_range_more_than_two_blocks(blocks, len, set_bits_for_len, start_bit, block, is_set_operation);
+        if is_set_operation {
+            *get_mut_by_index(blocks, block) |= first_mask;
+
+            if last_block_len > 0 {
+                let second_mask = *get_ref_by_index(set_bits_for_len, last_block_len);
+
+                *get_mut_by_index(blocks, block + number_of_full_blocks + 1) |= second_mask;
+            }
+
+            unsafe {
+                blocks
+                    .as_mut_ptr()
+                    .add(block + 1)
+                    .write_bytes(255, number_of_full_blocks);
+            }
+        } else {
+            *get_mut_by_index(blocks, block) &= first_mask;
+
+            if last_block_len > 0 {
+                let second_mask = *get_ref_by_index(set_bits_for_len, last_block_len);
+
+                *get_mut_by_index(blocks, block + number_of_full_blocks + 1) &= second_mask;
+            }
+
+            unsafe {
+                blocks
+                    .as_mut_ptr()
+                    .add(block + 1)
+                    .write_bytes(0, number_of_full_blocks);
             }
         }
     }
 }
 
-pub(crate) const fn set_range(blocks: &mut [usize], start: usize, len: usize) {
-    const SET_BITS_FOR_LEN: [usize; usize::BITS as usize] = {
-        let mut res = [0; usize::BITS as usize];
+const SET_BITS_FOR_LEN: [usize; usize::BITS as usize + 1] = {
+    let mut res = [0; usize::BITS as usize + 1];
+    let mut curr = 0;
 
-        let mut curr = 0;
+    while curr < usize::BITS as usize {
+        let mut i = 0;
+        let mut block = 0;
 
-        while curr < usize::BITS as usize {
-            let mut i = 0;
-            let mut block = 0;
+        while i <= curr {
+            block |= 1 << i;
 
-            while i <= curr {
-                block |= 1 << i;
-
-                i += 1;
-            }
-
-            res[curr] = block;
-
-            curr += 1;
+            i += 1;
         }
 
-        res
-    };
+        res[curr + 1] = block;
 
+        curr += 1;
+    }
+
+    res
+};
+
+pub(crate) const fn set_range(blocks: &mut [usize], start: usize, len: usize) {
     update_range(blocks, start, len, &SET_BITS_FOR_LEN, true);
 }
 
+const RESET_BITS_FOR_LEN: [usize; usize::BITS as usize + 1] = {
+    let mut res = [0; usize::BITS as usize + 1];
+
+    let mut curr = 0;
+
+    while curr < usize::BITS as usize {
+        let mut i = 0;
+        let mut block = !0; // Start with all bits set
+
+        while i <= curr {
+            block &= !(1 << i); // Clear the first curr bits
+            i += 1;
+        }
+
+        res[curr + 1] = block;
+
+        curr += 1;
+    }
+
+    res
+};
+
 pub(crate) const fn clear_range(blocks: &mut [usize], start: usize, len: usize) {
-    const RESET_BITS_FOR_LEN: [usize; usize::BITS as usize] = {
-        let mut res = [0; usize::BITS as usize];
-
-        let mut curr = 0;
-
-        while curr < usize::BITS as usize {
-            let mut i = 0;
-            let mut block = !0; // Start with all bits set
-
-            while i <= curr {
-                block &= !(1 << i); // Clear the first curr bits
-                i += 1;
-            }
-
-            res[curr] = block;
-
-            curr += 1;
-        }
-
-        res
-    };
-
     update_range(blocks, start, len, &RESET_BITS_FOR_LEN, false);
-}
-
-const fn check_range_more_than_two_blocks(
-    blocks: &[usize],
-    len: usize,
-    check_bits_for_len: &[usize; usize::BITS as usize],
-    start_bit: usize,
-    start_block: usize,
-    is_set_check: bool,
-) -> bool {
-    let first_block_len = usize::BITS as usize - start_bit;
-    let first_block_mask = check_bits_for_len[first_block_len] << start_bit;
-
-    let remaining = len - first_block_len;
-    let remaining_full_blocks = remaining / usize::BITS as usize;
-    let last_block_len = remaining % usize::BITS as usize;
-    let last_block_mask = check_bits_for_len[last_block_len];
-
-    let mut total_bits = 0;
-
-    // Check first block
-    let first_block_bits = (blocks[start_block] & first_block_mask).count_ones() as usize;
-    total_bits += first_block_bits;
-
-    let mut i = 1;
-
-    // Check full blocks in the middle
-    while i < remaining_full_blocks + 1 {
-        let block_idx = start_block + i;
-        if i == remaining_full_blocks && last_block_len == 0 {
-            // This is actually the last block with full mask
-            let full_mask = check_bits_for_len[LAST];
-            let block_bits = (blocks[block_idx] & full_mask).count_ones() as usize;
-
-            total_bits += block_bits;
-
-            break;
-        } else if i == remaining_full_blocks {
-            // Last block with partial mask
-            let block_bits = (blocks[block_idx] & last_block_mask).count_ones() as usize;
-
-            total_bits += block_bits;
-
-            break;
-        } else {
-            // Full block in the middle
-            let full_mask = check_bits_for_len[LAST];
-            let block_bits = (blocks[block_idx] & full_mask).count_ones() as usize;
-            total_bits += block_bits;
-        }
-
-        i += 1;
-    }
-
-    // Check if total bits match expectation
-    if is_set_check {
-        total_bits == len
-    } else {
-        total_bits == 0
-    }
 }
 
 const fn check_range_internal(
     blocks: &[usize],
     start: usize,
     len: usize,
-    check_bits_for_len: &[usize; usize::BITS as usize],
+    check_bits_for_len: &[usize; usize::BITS as usize + 1],
     is_set_check: bool,
 ) -> bool {
     maybe_assert(
@@ -464,129 +415,78 @@ const fn check_range_internal(
         "`start` + `len` is out of bounds",
     );
 
+    let mut ones = 0;
+
+    // Three cases are possible:
+    // 1. We need to check only one block;
+    // 2. We need to check only two blocks;
+    // 3. We need to check more than two blocks.
+    // It looks obvious, like why did I write this?
+    // Because each of these cases has its own algorithm.
+
     let (block, start_bit) = calc_block_and_slot(start);
+    let end = start_bit + len;
 
-    match () {
-        () if len < usize::BITS as usize => {
-            if start_bit + len < usize::BITS as usize {
-                let mask = check_bits_for_len[len] << start_bit;
-                if is_set_check {
-                    (blocks[block] & mask) == mask
-                } else {
-                    (blocks[block] & mask) == 0
-                }
-            } else {
-                let first_block_len = (LAST - start_bit) + 1;
-                let first_mask = check_bits_for_len[first_block_len] << start_bit;
-                let second_mask = check_bits_for_len[len - first_block_len];
+    if end <= usize::BITS as usize {
+        // one block
+        let mask = *get_ref_by_index(check_bits_for_len, len) << start_bit;
 
-                if is_set_check {
-                    (blocks[block] & first_mask) == first_mask
-                        && (blocks[block + 1] & second_mask) == second_mask
-                } else {
-                    (blocks[block] & first_mask) == 0 && (blocks[block + 1] & second_mask) == 0
-                }
-            }
+        ones += (*get_ref_by_index(blocks, block) & mask).count_ones();
+    } else if end <= (usize::BITS * 2) as usize {
+        // two blocks
+        let first_block_len = usize::BITS as usize - start_bit;
+        let second_block_len = len - first_block_len;
+        let first_mask = *get_ref_by_index(check_bits_for_len, first_block_len) << start_bit;
+        let second_mask = *get_ref_by_index(check_bits_for_len, second_block_len);
+
+        ones += (*get_ref_by_index(blocks, block) & first_mask).count_ones();
+        ones += (*get_ref_by_index(blocks, block + 1) & second_mask).count_ones();
+    } else {
+        // many blocks
+        let first_block_len = usize::BITS as usize - start_bit;
+        let remaining = len - first_block_len;
+        let number_of_full_blocks = remaining / usize::BITS as usize;
+        let last_block_len = remaining % usize::BITS as usize;
+        let first_mask = *get_ref_by_index(check_bits_for_len, first_block_len) << start_bit;
+
+        ones += (*get_ref_by_index(blocks, block) & first_mask).count_ones();
+
+        if last_block_len > 0 {
+            let second_mask = *get_ref_by_index(check_bits_for_len, last_block_len);
+
+            ones += (*get_ref_by_index(blocks, block + number_of_full_blocks + 1) & second_mask).count_ones();
         }
-        () if len == usize::BITS as usize => {
-            if start_bit == 0 {
-                // exactly one full block
-                let mask = check_bits_for_len[LAST];
-                if is_set_check {
-                    (blocks[block] & mask) == mask
-                } else {
-                    (blocks[block] & mask) == 0
-                }
-            } else {
-                // two blocks
-                let first_block_len = usize::BITS as usize - start_bit;
-                let first_mask = check_bits_for_len[first_block_len] << start_bit;
-                let second_mask = check_bits_for_len[len - first_block_len];
 
-                if is_set_check {
-                    (blocks[block] & first_mask) == first_mask
-                        && (blocks[block + 1] & second_mask) == second_mask
-                } else {
-                    (blocks[block] & first_mask) == 0 && (blocks[block + 1] & second_mask) == 0
-                }
+        let mut i = 1;
+        let end = 1 + number_of_full_blocks;
+
+        if len <= 4096 {
+            while i < end {
+                ones += get_ref_by_index(blocks, block + i).count_ones();
+
+                i += 1;
             }
-        }
-        _ => {
-            if start_bit + len < 2 * usize::BITS as usize {
-                let first_block_len = usize::BITS as usize - start_bit;
-                let first_mask = check_bits_for_len[first_block_len] << start_bit;
-                let second_mask = check_bits_for_len[len - first_block_len];
-
-                if is_set_check {
-                    (blocks[block] & first_mask) == first_mask
-                        && (blocks[block + 1] & second_mask) == second_mask
-                } else {
-                    (blocks[block] & first_mask) == 0 && (blocks[block + 1] & second_mask) == 0
+        } else {
+            while i < end {
+                let ones_here = get_ref_by_index(blocks, block + i).count_ones();
+                if is_set_check && ones_here < usize::BITS || !is_set_check && ones_here > 0 {
+                    return false;
                 }
-            } else {
-                check_range_more_than_two_blocks(
-                    blocks,
-                    len,
-                    check_bits_for_len,
-                    start_bit,
-                    block,
-                    is_set_check,
-                )
+
+                ones += ones_here;
+
+                i += 1;
             }
         }
     }
+
+    (is_set_check && ones as usize == len) || (!is_set_check && ones == 0)
 }
 
 pub(crate) const fn check_range_is_set(blocks: &[usize], start: usize, len: usize) -> bool {
-    const CHECK_BITS_FOR_LEN: [usize; usize::BITS as usize] = {
-        let mut res = [0; usize::BITS as usize];
-
-        let mut curr = 0;
-
-        while curr < usize::BITS as usize {
-            let mut i = 0;
-            let mut block = 0;
-
-            while i <= curr {
-                block |= 1 << i;
-
-                i += 1;
-            }
-
-            res[curr] = block;
-
-            curr += 1;
-        }
-
-        res
-    };
-
-    check_range_internal(blocks, start, len, &CHECK_BITS_FOR_LEN, true)
+    check_range_internal(blocks, start, len, &SET_BITS_FOR_LEN, true)
 }
 
 pub(crate) const fn check_range_is_unset(blocks: &[usize], start: usize, len: usize) -> bool {
-    const CHECK_BITS_FOR_LEN: [usize; usize::BITS as usize] = {
-        let mut res = [0; usize::BITS as usize];
-
-        let mut curr = 0;
-
-        while curr < usize::BITS as usize {
-            let mut i = 0;
-            let mut block = 0;
-
-            while i <= curr {
-                block |= 1 << i;
-
-                i += 1;
-            }
-
-            res[curr] = block;
-
-            curr += 1;
-        }
-
-        res
-    };
-
-    check_range_internal(blocks, start, len, &CHECK_BITS_FOR_LEN, false)
+    check_range_internal(blocks, start, len, &SET_BITS_FOR_LEN, false)
 }
