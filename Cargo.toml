@@ -1,7 +1,12 @@
 [package]
 name = "ranged_bitmap"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
+description = "A high-performance bitmap library"
+license = "MIT"
+repository = "https://github.com/Eugene-Usachev/ranged_bitmap"
+keywords = ["bitmap", "performance", "no_std", "constant-time"]
+categories = ["data-structures", "algorithms", "no-std"]
 
 [dependencies]
 
