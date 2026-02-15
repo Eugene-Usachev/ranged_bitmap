@@ -1,6 +1,6 @@
 # Ranged Bitmap
 
-A high-performance bitmap library with both fixed-size and flexible bitmap implementations.
+A high-performance bitmap library with fixed-size, flexible, and small-optimized bitmap implementations.
 
 ## Features
 
@@ -8,6 +8,7 @@ A high-performance bitmap library with both fixed-size and flexible bitmap imple
 - **Optimized range operations** that work on multiple bits simultaneously
 - **Fixed-size bitmaps** with compile-time size determination
 - **Flexible bitmaps** that grow dynamically as needed
+- **Small-optimized bitmaps** using `SmallVec` for stack storage with automatic heap growth
 - **No_std compatibility** for embedded and bare-metal environments
 
 ## Performance
@@ -79,6 +80,33 @@ println!("Current capacity: {} bits", bitmap.capacity());
 println!("Number of blocks: {}", bitmap.blocks());
 ```
 
+### Small-Optimized Bitmap (Stack storage with heap growth)
+
+```rust
+use ranged_bitmap::generate_small_bit_map_struct;
+
+// Generate a SmallBitMap wrapper with 4 blocks on the stack (256 bits)
+generate_small_bit_map_struct!(struct MySmallBitmap<4>);
+
+// Create a small-optimized bitmap
+let mut bitmap = MySmallBitmap::new();
+
+// Small bitmaps (≤256 bits) use only stack storage
+bitmap.set_range(0, 64);   // Stack-only, no heap allocation
+bitmap.set_range(64, 128);  // Still stack-only
+
+// Large bitmaps automatically grow to heap when needed
+bitmap.set_range(256, 1000); // Automatically spills to heap
+
+println!("Capacity: {} bits", bitmap.capacity());
+
+// All operations work the same as other bitmap types
+assert!(bitmap.get(300));
+assert!(bitmap.check_range_is_set(0, 192));
+
+// Perfect for cases where most bitmaps are small but occasionally grow
+```
+
 ### Range Operations
 
 The library excels at a range of operations:
@@ -108,6 +136,14 @@ bitmap.clear_range(32, 64); // Clear middle portion
 | Range operations (multi-block) | O(n) | n = number of affected blocks |
 | Full block operations | O(n) | memset-like optimizations |
 | Bit counting | O(n) | Hardware-accelerated |
+
+### Bitmap Type Comparison
+
+| Type | Storage | Best For | Heap Allocation |
+|------|---------|-----------|-----------------|
+| `FixedBitMap` | Stack only | Known size at compile time | Never |
+| `SmallBitMap` | Stack + SmallVec | Usually small, occasionally large | Only when needed |
+| `FlexBitMap` | Heap only | Unknown size, always dynamic | Always |
 
 ## License
 

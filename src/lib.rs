@@ -2,17 +2,22 @@
 
 //! # Ranged Bitmap
 //!
-//! A high-performance bitmap library.
+//! A high-performance bitmap library with fixed-size, flexible, and small-optimized bitmap implementations.
 //!
 //! This library provides efficient bitmap manipulation with a focus on:
 //! - All functions are **constant**
 //! - **Optimized range operations** that work on multiple bits simultaneously
+//! - **Fixed-size bitmaps** with compile-time size determination
+//! - **Flexible bitmaps** that grow dynamically as needed
+//! - **Small-optimized bitmaps** using [`SmallVec`](smallvec::SmallVec) for stack
+//!   storage with automatic heap growth
 //! - **`No_std` compatibility** for embedded and bare-metal environments
 //!
 //! ## Features
 //!
 //! - Fixed-size bitmaps with compile-time size determination
 //! - Flexible bitmaps that grow dynamically as needed
+//! - Small-optimized bitmaps using [`SmallVec`](smallvec::SmallVec) for efficient storage
 //! - Efficient range setting, clearing, and checking operations
 //! - All functions are constant
 //!
@@ -21,8 +26,21 @@
 //! The library is designed with performance as a primary goal:
 //! - Range operations use precomputed lookup tables for optimal bit manipulation
 //! - Bulk operations on full blocks use `memset`-like operations for maximum speed
+//! - All functions are marked `#[inline(always)]` for aggressive inlining
+//! - Constant functions enable compile-time optimizations
+//! - Hardware-accelerated bit counting operations
 //!
-//! ## Example
+//! ## Bitmap Type Comparison
+//!
+//! | Type | Storage | Best For | Heap Allocation |
+//! |------|---------|-----------|-----------------|
+//! | `FixedBitMap` | Stack only | Known size at compile time | Never |
+//! | `SmallBitMap` | Stack + [`SmallVec`](smallvec::SmallVec) | Usually small, occasionally large | Only when needed |
+//! | `FlexBitMap` | Heap only | Unknown size, always dynamic | Always |
+//!
+//! ## Examples
+//!
+//! ### Fixed Bitmap (Compile-time size)
 //!
 //! ```rust
 //! use ranged_bitmap::generate_fixed_bit_map_struct;
@@ -56,6 +74,54 @@
 //! // Count set bits
 //! println!("Total set bits: {}", bitmap.count_ones());
 //! println!("Total unset bits: {}", bitmap.count_zeros());
+//! ```
+//!
+//! ### Flexible Bitmap (Dynamic size)
+//!
+//! ```rust
+//! use ranged_bitmap::FlexBitMap;
+//!
+//! // Create a flexible bitmap that grows as needed
+//! let mut bitmap = FlexBitMap::new();
+//!
+//! // Automatically grows when setting bits beyond current capacity
+//! bitmap.set(1000); // Grows to accommodate bit 1000
+//! bitmap.set_range(2000, 100); // Grows to accommodate the range
+//!
+//! // All operations work the same as fixed bitmap
+//! assert!(bitmap.get(1000));
+//! assert!(bitmap.check_range_is_set(2000, 100));
+//!
+//! // Check current capacity
+//! println!("Current capacity: {} bits", bitmap.capacity());
+//! println!("Number of blocks: {}", bitmap.blocks());
+//! ```
+//!
+//! ### Small-Optimized Bitmap (Stack storage with heap growth)
+//!
+//! ```rust
+//! use ranged_bitmap::generate_small_bit_map_struct;
+//!
+//! // Generate a SmallBitMap wrapper with 4 blocks on the stack (256 bits)
+//! generate_small_bit_map_struct!(struct MySmallBitmap<4>);
+//!
+//! // Create a small-optimized bitmap
+//! let mut bitmap = MySmallBitmap::new();
+//!
+//! // Small bitmaps (≤256 bits) use only stack storage
+//! bitmap.set_range(0, 64);   // Stack-only, no heap allocation
+//! bitmap.set_range(64, 128);  // Still stack-only
+//!
+//! // Large bitmaps automatically grow to heap when needed
+//! bitmap.set_range(256, 1000); // Automatically spills to heap
+//!
+//! println!("Capacity: {} bits", bitmap.capacity());
+//!
+//! // All operations work the same as other bitmap types
+//! assert!(bitmap.get(300));
+//! assert!(bitmap.check_range_is_set(0, 192));
+//!
+//! // Perfect for cases where most bitmaps are small but occasionally grow
 //! ```
 
 #![deny(clippy::all)]
@@ -105,10 +171,12 @@ extern crate alloc;
 pub mod base;
 pub(crate) mod fixed;
 pub(crate) mod flex;
+pub(crate) mod small;
 
 pub use base::blocks_number_for_bits;
 pub use fixed::FixedBitMap;
 pub use flex::FlexBitMap;
+pub use small::SmallBitMap;
 
 /// Internal assertion helper for conditional debugging.
 ///
