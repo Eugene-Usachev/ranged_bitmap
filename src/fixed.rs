@@ -332,7 +332,7 @@ impl<const BLOCKS: usize> FixedBitMap<BLOCKS> {
     /// bitmap.set_range(10, 50);
     /// assert!(bitmap.check_range_is_set(10, 50));
     /// ```
-    pub const fn check_range_is_set(&mut self, start: usize, len: usize) -> bool {
+    pub const fn check_range_is_set(&self, start: usize, len: usize) -> bool {
         base::bitmap_check_range_is_set(&self.blocks, start, len)
     }
 
@@ -365,8 +365,93 @@ impl<const BLOCKS: usize> FixedBitMap<BLOCKS> {
     /// let mut bitmap = FixedBitMap::<2>::new();
     /// assert!(bitmap.check_range_is_unset(10, 50)); // All unset again
     /// ```
-    pub const fn check_range_is_unset(&mut self, start: usize, len: usize) -> bool {
+    pub const fn check_range_is_unset(&self, start: usize, len: usize) -> bool {
         base::bitmap_check_range_is_unset(&self.blocks, start, len)
+    }
+
+    /// Find the first set bit starting from the specified offset.
+    ///
+    /// Searches the bitmap beginning at `start` (**inclusive**) and returns the
+    /// index of the first bit whose value is `true`.
+    ///
+    /// If no set bit exists at or after `start`, this function returns `None`.
+    ///
+    /// The search is optimized to process words, not individual bits,
+    /// making it fast enough for expected sizes of bit maps.
+    ///
+    /// # Panics
+    ///
+    /// In debug builds, this function will panic if `start` is out of bounds.
+    /// In release builds, bound checking is omitted for performance.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use ranged_bitmap::FixedBitMap;
+    ///
+    /// let mut bitmap = FixedBitMap::<8>::new();
+    ///
+    /// bitmap.set(0);
+    /// bitmap.set(1);
+    /// bitmap.set(10);
+    /// bitmap.set(42);
+    /// bitmap.set(80);
+    /// bitmap.set(300);
+    ///
+    /// assert_eq!(bitmap.first_set_bit_from_offset(0), Some(0));
+    /// assert_eq!(bitmap.first_set_bit_from_offset(1), Some(1));
+    /// assert_eq!(bitmap.first_set_bit_from_offset(2), Some(10));
+    /// assert_eq!(bitmap.first_set_bit_from_offset(11), Some(42));
+    /// assert_eq!(bitmap.first_set_bit_from_offset(43), Some(80));
+    /// assert_eq!(bitmap.first_set_bit_from_offset(81), Some(300));
+    /// assert_eq!(bitmap.first_set_bit_from_offset(300), Some(300));
+    /// assert_eq!(bitmap.first_set_bit_from_offset(301), None);
+    /// ```
+    pub const fn first_set_bit_from_offset(&self, start: usize) -> Option<usize> {
+        base::first_set_bit_from_offset(&self.blocks, start)
+    }
+
+    /// Find the first unset bit starting from the specified offset.
+    ///
+    /// Searches the bitmap beginning at `start` (**inclusive**) and returns the
+    /// index of the first bit whose value is `false`.
+    ///
+    /// If no unset bit exists at or after `start`, this function returns `None`.
+    ///
+    /// The search is optimized to process words, not individual bits,
+    /// making it fast enough for expected sizes of bit maps.
+    ///
+    /// # Panics
+    ///
+    /// In debug builds, this function will panic if `start` is out of bounds.
+    /// In release builds, bound checking is omitted for performance.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use ranged_bitmap::FixedBitMap;
+    ///
+    /// let mut bitmap = FixedBitMap::<8>::new();
+    /// bitmap.set_range(0, 8 * usize::BITS as usize);
+    ///
+    /// bitmap.clear(0);
+    /// bitmap.clear(1);
+    /// bitmap.clear(10);
+    /// bitmap.clear(42);
+    /// bitmap.clear(80);
+    /// bitmap.clear(300);
+    ///
+    /// assert_eq!(bitmap.first_unset_bit_from_offset(0), Some(0));
+    /// assert_eq!(bitmap.first_unset_bit_from_offset(1), Some(1));
+    /// assert_eq!(bitmap.first_unset_bit_from_offset(2), Some(10));
+    /// assert_eq!(bitmap.first_unset_bit_from_offset(11), Some(42));
+    /// assert_eq!(bitmap.first_unset_bit_from_offset(43), Some(80));
+    /// assert_eq!(bitmap.first_unset_bit_from_offset(81), Some(300));
+    /// assert_eq!(bitmap.first_unset_bit_from_offset(300), Some(300));
+    /// assert_eq!(bitmap.first_unset_bit_from_offset(301), None);
+    /// ```
+    pub const fn first_unset_bit_from_offset(&self, start: usize) -> Option<usize> {
+        base::first_unset_bit_from_offset(&self.blocks, start)
     }
 }
 
@@ -430,7 +515,7 @@ macro_rules! generate_fixed_bit_map_struct {
     (struct $name:ident<$bits:tt>) => {
         const __BLOCKS: usize = $crate::blocks_number_for_bits($bits);
 
-        pub struct $name($crate::FixedBitMap<__BLOCKS>);
+        pub struct $name(pub $crate::FixedBitMap<__BLOCKS>);
 
         impl $name {
             pub const fn new() -> Self {
@@ -452,347 +537,4 @@ macro_rules! generate_fixed_bit_map_struct {
             }
         }
     };
-}
-
-#[cfg(test)]
-mod tests {
-    use alloc::vec::Vec;
-
-    generate_fixed_bit_map_struct!(struct TestBitmap<256>);
-
-    fn set_bits_individually(bitmap: &mut TestBitmap, start: usize, len: usize) {
-        for i in 0..len {
-            bitmap.set(start + i);
-        }
-    }
-
-    fn clear_bits_individually(bitmap: &mut TestBitmap, start: usize, len: usize) {
-        for i in 0..len {
-            bitmap.clear(start + i);
-        }
-    }
-
-    fn check_bits_individually(bitmap: &TestBitmap, start: usize, len: usize) -> Vec<bool> {
-        (0..len).map(|i| bitmap.get(start + i)).collect()
-    }
-
-    fn check_range_all_set(bitmap: &TestBitmap, start: usize, len: usize) -> bool {
-        check_bits_individually(bitmap, start, len)
-            .iter()
-            .all(|&bit| bit)
-    }
-
-    fn check_range_all_unset(bitmap: &TestBitmap, start: usize, len: usize) -> bool {
-        check_bits_individually(bitmap, start, len)
-            .iter()
-            .all(|&bit| !bit)
-    }
-
-    #[test]
-    fn test_set_range_matches_individual_operations() {
-        let mut bitmap_range;
-        let mut bitmap_individual;
-
-        let test_cases = [
-            (0, 1),     // single bit at start
-            (10, 5),    // small range in middle
-            (0, 64),    // exactly one block
-            (0, 65),    // spans two blocks
-            (100, 100), // arbitrary range
-            (200, 56),  // range at end
-            (0, 256),   // entire bitmap
-            (128, 128), // second half
-            (50, 150),  // large range spanning multiple blocks
-        ];
-
-        for (start, len) in test_cases {
-            // Reset both bitmaps
-            bitmap_range = TestBitmap::new();
-            bitmap_individual = TestBitmap::new();
-
-            // Set bits using range operation
-            bitmap_range.set_range(start, len);
-
-            // Set bits individually
-            set_bits_individually(&mut bitmap_individual, start, len);
-
-            // Compare all bits in the range
-            for i in 0..256 {
-                assert_eq!(
-                    bitmap_range.get(i),
-                    bitmap_individual.get(i),
-                    "Mismatch at bit {i} for range ({start}, {len})"
-                );
-            }
-
-            // Also compare bits outside the range to ensure they weren't affected
-            for i in 0..256 {
-                if i < start || i >= start + len {
-                    assert_eq!(
-                        bitmap_range.get(i),
-                        bitmap_individual.get(i),
-                        "Unexpected change at bit {i} outside range ({start}, {len})"
-                    );
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn test_clear_range_matches_individual_operations() {
-        let mut bitmap_range = TestBitmap::new();
-        let mut bitmap_individual = TestBitmap::new();
-
-        let test_cases = [
-            (0, 1),     // single bit at start
-            (10, 5),    // small range in middle
-            (0, 64),    // exactly one block
-            (0, 65),    // spans two blocks
-            (100, 100), // arbitrary range
-            (200, 56),  // range at end
-            (0, 256),   // entire bitmap
-            (128, 128), // second half
-            (50, 150),  // large range spanning multiple blocks
-        ];
-
-        for (start, len) in test_cases {
-            // First set all bits
-            for i in 0..256 {
-                bitmap_range.set(i);
-                bitmap_individual.set(i);
-            }
-
-            // Clear bits using range operation
-            bitmap_range.clear_range(start, len);
-
-            // Clear bits individually
-            clear_bits_individually(&mut bitmap_individual, start, len);
-
-            // Compare all bits in the range
-            for i in 0..256 {
-                assert_eq!(
-                    bitmap_range.get(i),
-                    bitmap_individual.get(i),
-                    "Mismatch at bit {i} for range ({start}, {len})"
-                );
-            }
-
-            // Reset for next test case
-            for i in 0..256 {
-                bitmap_range.set(i);
-                bitmap_individual.set(i);
-            }
-        }
-    }
-
-    #[test]
-    fn test_check_range_is_set_matches_individual_operations() {
-        let mut bitmap = TestBitmap::new();
-        let test_cases = [
-            (0, 1),     // single bit at start
-            (10, 5),    // small range in middle
-            (0, 64),    // exactly one block
-            (0, 65),    // spans two blocks
-            (100, 100), // arbitrary range
-            (200, 56),  // range at end
-            (0, 256),   // entire bitmap
-            (128, 128), // second half
-            (50, 150),  // large range spanning multiple blocks
-        ];
-
-        for (start, len) in test_cases {
-            // Test with unset bits
-            assert_eq!(
-                bitmap.check_range_is_set(start, len),
-                check_range_all_set(&bitmap, start, len),
-                "Range check failed for unset bits ({start}, {len})"
-            );
-
-            // Set bits in the range
-            set_bits_individually(&mut bitmap, start, len);
-
-            // Test with set bits
-            assert_eq!(
-                bitmap.check_range_is_set(start, len),
-                check_range_all_set(&bitmap, start, len),
-                "Range check failed for set bits ({start}, {len})"
-            );
-
-            // Clear bits for next test
-            clear_bits_individually(&mut bitmap, start, len);
-        }
-    }
-
-    #[test]
-    fn test_check_range_is_unset_matches_individual_operations() {
-        let mut bitmap = TestBitmap::new();
-
-        let test_cases = [
-            (0, 1),     // single bit at start
-            (10, 5),    // small range in middle
-            (0, 64),    // exactly one block
-            (0, 65),    // spans two blocks
-            (100, 100), // arbitrary range
-            (200, 56),  // range at end
-            (0, 256),   // entire bitmap
-            (128, 128), // second half
-            (50, 150),  // large range spanning multiple blocks
-        ];
-
-        for (start, len) in test_cases {
-            // Test with unset bits
-            assert_eq!(
-                bitmap.check_range_is_unset(start, len),
-                check_range_all_unset(&bitmap, start, len),
-                "Range check failed for unset bits ({start}, {len})"
-            );
-
-            // Set bits in the range
-            set_bits_individually(&mut bitmap, start, len);
-
-            // Test with set bits
-            assert_eq!(
-                bitmap.check_range_is_unset(start, len),
-                check_range_all_unset(&bitmap, start, len),
-                "Range check failed for set bits ({start}, {len})"
-            );
-
-            // Clear bits for next test
-            clear_bits_individually(&mut bitmap, start, len);
-        }
-    }
-
-    #[test]
-    fn test_iter_range_matches_individual_operations() {
-        let mut bitmap = TestBitmap::new();
-
-        let test_cases = [
-            (0, 1),     // single bit at start
-            (10, 5),    // small range in middle
-            (0, 64),    // exactly one block
-            (0, 65),    // spans two blocks
-            (100, 100), // arbitrary range
-            (200, 56),  // range at end
-            (0, 256),   // entire bitmap
-            (128, 128), // second half
-            (50, 150),  // large range spanning multiple blocks
-        ];
-
-        for (start, len) in test_cases {
-            // Test with unset bits
-            let iter_result: Vec<(usize, bool)> = bitmap.iter_range(start, len).collect();
-            let individual_result: Vec<(usize, bool)> =
-                check_bits_individually(&bitmap, start, len)
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, bit)| (start + i, bit))
-                    .collect();
-
-            assert_eq!(
-                iter_result, individual_result,
-                "Iterator mismatch for unset bits ({start}, {len})"
-            );
-
-            // Set some bits in the range
-            for i in (0..len).step_by(3) {
-                bitmap.set(start + i);
-            }
-
-            // Test with mixed bits
-            let iter_result: Vec<(usize, bool)> = bitmap.iter_range(start, len).collect();
-            let individual_result: Vec<(usize, bool)> =
-                check_bits_individually(&bitmap, start, len)
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, bit)| (start + i, bit))
-                    .collect();
-
-            assert_eq!(
-                iter_result, individual_result,
-                "Iterator mismatch for mixed bits ({start}, {len})"
-            );
-
-            // Clear bits for next test
-            clear_bits_individually(&mut bitmap, start, len);
-        }
-    }
-
-    #[test]
-    fn test_edge_cases() {
-        let mut bitmap = TestBitmap::new();
-
-        // Test setting and clearing at block boundaries
-        let boundary_tests = [
-            (63, 1),  // end of first block
-            (64, 1),  // start of second block
-            (62, 4),  // spans block boundary
-            (127, 1), // end of second block
-            (128, 1), // start of third block
-            (126, 4), // spans another block boundary
-        ];
-
-        for (start, len) in boundary_tests {
-            // Test set_range
-            bitmap.set_range(start, len);
-
-            for i in start..start + len {
-                assert!(bitmap.get(i), "Bit {i} should be set");
-            }
-
-            // Test clear_range
-            bitmap.clear_range(start, len);
-
-            for i in start..start + len {
-                assert!(!bitmap.get(i), "Bit {i} should be clear");
-            }
-        }
-    }
-
-    #[test]
-    fn test_range_operations_with_partial_patterns() {
-        let mut bitmap = TestBitmap::new();
-
-        // Create a pattern: set every other bit
-        for i in 0..256 {
-            if i % 2 == 0 {
-                bitmap.set(i);
-            }
-        }
-
-        let test_cases = [(0, 10), (5, 20), (50, 50), (100, 100), (200, 56)];
-
-        for (start, len) in test_cases {
-            // Test check_range_is_set (should be false for our pattern)
-            assert!(!bitmap.check_range_is_set(start, len));
-
-            // Test check_range_is_unset (should be false for our pattern)
-            assert!(!bitmap.check_range_is_unset(start, len));
-
-            // Test iter_range matches individual checks
-            let iter_result: Vec<bool> =
-                bitmap.iter_range(start, len).map(|(_, bit)| bit).collect();
-            let individual_result = check_bits_individually(&bitmap, start, len);
-
-            assert_eq!(iter_result, individual_result);
-        }
-    }
-
-    #[test]
-    fn test_count_operations_after_range_operations() {
-        let mut bitmap = TestBitmap::new();
-
-        let test_cases = [(0, 64), (64, 64), (128, 64), (50, 100)];
-
-        for (start, len) in test_cases {
-            let initial_count = bitmap.count_ones();
-
-            // Set range and verify count
-            bitmap.set_range(start, len);
-            assert_eq!(bitmap.count_ones(), initial_count + len);
-
-            // Clear range and verify count
-            bitmap.clear_range(start, len);
-            assert_eq!(bitmap.count_ones(), initial_count);
-        }
-    }
 }

@@ -17,6 +17,7 @@
 //! All functions perform bound checking in debug builds. In release builds,
 //! bounds are elided for maximum performance. Callers must ensure valid indices.
 
+use orengine_utils::hints::{likely, unlikely};
 use crate::maybe_assert;
 
 /// Number of bits in a usize
@@ -415,9 +416,9 @@ const fn update_range(
 ///
 /// ```text
 /// // On a 64-bit system:
-/// assert_eq!(SET_BITS_FOR_LEN[0], 0);          // No bits are set
-/// assert_eq!(SET_BITS_FOR_LEN[1], 1);          // First bit is set
-/// assert_eq!(SET_BITS_FOR_LEN[3], 0b111);      // First 3 bits are set
+/// assert_eq!(SET_BITS_FOR_LEN[0], 0);           // No bits are set
+/// assert_eq!(SET_BITS_FOR_LEN[1], 1);           // First bit is set
+/// assert_eq!(SET_BITS_FOR_LEN[3], 0b111);       // First 3 bits are set
 /// assert_eq!(SET_BITS_FOR_LEN[64], usize::MAX); // All bits are set
 /// ```
 const SET_BITS_FOR_LEN: [usize; BITS_IN_USIZE + 1] = {
@@ -435,6 +436,31 @@ const SET_BITS_FOR_LEN: [usize; BITS_IN_USIZE + 1] = {
         }
 
         res[curr + 1] = block;
+
+        curr += 1;
+    }
+
+    res
+};
+
+/// Precomputed lookup table for setting bits of a given length.
+///
+///
+/// # Example
+///
+/// ```text
+/// // On a 64-bit system:
+/// assert_eq!(UNSET_BITS_FOR_LEN[0], usize::MAX);           // All bits are set
+/// assert_eq!(UNSET_BITS_FOR_LEN[1][0], 1);                 // Only the first bit is unset
+/// assert_eq!(UNSET_BITS_FOR_LEN[1][1], 0);                 // Only the first bit is unset
+/// assert_eq!(UNSET_BITS_FOR_LEN[64], 0);                   // No bits are set
+/// ```
+const UNSET_BITS_FOR_LEN: [usize; BITS_IN_USIZE + 1] = {
+    let mut res = [0; BITS_IN_USIZE + 1];
+    let mut curr = 0;
+
+    while curr <= BITS_IN_USIZE {
+        res[curr] = !SET_BITS_FOR_LEN[curr];
 
         curr += 1;
     }
@@ -641,4 +667,62 @@ pub const fn bitmap_check_range_is_set(blocks: &[usize], start: usize, len: usiz
 /// ```
 pub const fn bitmap_check_range_is_unset(blocks: &[usize], start: usize, len: usize) -> bool {
     check_range_internal(blocks, start, len, &SET_BITS_FOR_LEN, false)
+}
+
+/// Finds the first bit that is set, starts from offset.
+pub const fn first_set_bit_from_offset(blocks: &[usize], start: usize) -> Option<usize> {
+    maybe_assert(
+        !blocks.is_empty(),
+        "zero blocks were provided to `first_set_bit_from_offset`"
+    );
+    maybe_assert(
+        start <= blocks.len() * BITS_IN_USIZE,
+        "provided to `first_set_bit_from_offset` `start` is out of bounds"
+    );
+
+    let mut block_idx = start / BITS_IN_USIZE;
+    let offset = start % BITS_IN_USIZE;
+    let mut block = blocks[block_idx] & UNSET_BITS_FOR_LEN[offset]; // set all bits before the offset to zero
+
+    loop {
+        if likely(block != 0) {
+            return Some(block.trailing_zeros() as usize + block_idx * BITS_IN_USIZE);
+        }
+
+        block_idx += 1;
+        if unlikely(block_idx >= blocks.len()) {
+            return None;
+        }
+
+        block = blocks[block_idx];
+    }
+}
+
+/// Finds the first bit that is unset, starts from offset.
+pub const fn first_unset_bit_from_offset(blocks: &[usize], start: usize) -> Option<usize> {
+    maybe_assert(
+        !blocks.is_empty(),
+        "zero blocks were provided to `first_set_bit_from_offset`"
+    );
+    maybe_assert(
+        start <= blocks.len() * BITS_IN_USIZE,
+        "provided to `first_set_bit_from_offset` `start` is out of bounds"
+    );
+
+    let mut block_idx = start / BITS_IN_USIZE;
+    let offset = start % BITS_IN_USIZE;
+    let mut block = blocks[block_idx] | SET_BITS_FOR_LEN[offset]; // set all bits before the offset to one
+
+    loop {
+        if likely(block != usize::MAX) {
+            return Some(block.trailing_ones() as usize + block_idx * BITS_IN_USIZE);
+        }
+
+        block_idx += 1;
+        if unlikely(block_idx >= blocks.len()) {
+            return None;
+        }
+
+        block = blocks[block_idx];
+    }
 }

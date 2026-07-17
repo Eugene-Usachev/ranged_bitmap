@@ -30,7 +30,9 @@ use crate::base::{
     calc_block_and_slot, BITS_IN_USIZE,
 };
 use alloc::vec;
+use orengine_utils::hints::unlikely;
 use smallvec::SmallVec;
+use crate::base;
 
 /// A bitmap that uses [`SmallVec`] for efficient storage with configurable inline capacity.
 ///
@@ -437,6 +439,95 @@ impl<const BLOCKS_ON_STACK: usize> SmallBitMap<BLOCKS_ON_STACK> {
         bitmap_check_range_is_unset(&self.data, start, actual_len)
     }
 
+    /// Find the first set bit starting from the specified offset.
+    ///
+    /// Searches the bitmap beginning at `start` (**inclusive**) and returns the
+    /// index of the first bit whose value is `true`.
+    ///
+    /// If no set bit exists at or after `start`, this function returns `None`.
+    ///
+    /// The search is optimized to process words, not individual bits,
+    /// making it fast enough for expected sizes of bit maps.
+    ///
+    /// If `start` is greater than [`capacity`](Self::capacity), this function returns `None`.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use ranged_bitmap::SmallBitMap;
+    ///
+    /// let mut bitmap = SmallBitMap::<8>::new();
+    ///
+    /// bitmap.set(0);
+    /// bitmap.set(1);
+    /// bitmap.set(10);
+    /// bitmap.set(42);
+    /// bitmap.set(80);
+    /// bitmap.set(300);
+    ///
+    /// assert_eq!(bitmap.first_set_bit_from_offset(0), Some(0));
+    /// assert_eq!(bitmap.first_set_bit_from_offset(1), Some(1));
+    /// assert_eq!(bitmap.first_set_bit_from_offset(2), Some(10));
+    /// assert_eq!(bitmap.first_set_bit_from_offset(11), Some(42));
+    /// assert_eq!(bitmap.first_set_bit_from_offset(43), Some(80));
+    /// assert_eq!(bitmap.first_set_bit_from_offset(81), Some(300));
+    /// assert_eq!(bitmap.first_set_bit_from_offset(300), Some(300));
+    /// assert_eq!(bitmap.first_set_bit_from_offset(301), None);
+    /// assert_eq!(bitmap.first_set_bit_from_offset(1000), None);
+    /// ```
+    pub fn first_set_bit_from_offset(&self, start: usize) -> Option<usize> {
+        if unlikely(start > self.capacity()) {
+            return None;
+        }
+
+        base::first_set_bit_from_offset(&self.data, start)
+    }
+
+    /// Find the first unset bit starting from the specified offset.
+    ///
+    /// Searches the bitmap beginning at `start` (**inclusive**) and returns the
+    /// index of the first bit whose value is `false`.
+    ///
+    /// If no unset bit exists at or after `start`, this function returns `None`.
+    ///
+    /// The search is optimized to process words, not individual bits,
+    /// making it fast enough for expected sizes of bit maps.
+    ///
+    /// If `start` is greater than [`capacity`](Self::capacity), this function returns `Some(start)`.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use ranged_bitmap::SmallBitMap;
+    ///
+    /// let mut bitmap = SmallBitMap::<8>::new();
+    /// bitmap.set_range(0, 8 * usize::BITS as usize);
+    ///
+    /// bitmap.clear(0);
+    /// bitmap.clear(1);
+    /// bitmap.clear(10);
+    /// bitmap.clear(42);
+    /// bitmap.clear(80);
+    /// bitmap.clear(300);
+    ///
+    /// assert_eq!(bitmap.first_unset_bit_from_offset(0), Some(0));
+    /// assert_eq!(bitmap.first_unset_bit_from_offset(1), Some(1));
+    /// assert_eq!(bitmap.first_unset_bit_from_offset(2), Some(10));
+    /// assert_eq!(bitmap.first_unset_bit_from_offset(11), Some(42));
+    /// assert_eq!(bitmap.first_unset_bit_from_offset(43), Some(80));
+    /// assert_eq!(bitmap.first_unset_bit_from_offset(81), Some(300));
+    /// assert_eq!(bitmap.first_unset_bit_from_offset(300), Some(300));
+    /// assert_eq!(bitmap.first_unset_bit_from_offset(301), None);
+    /// assert_eq!(bitmap.first_unset_bit_from_offset(1000), Some(1000));
+    /// ```
+    pub fn first_unset_bit_from_offset(&self, start: usize) -> Option<usize> {
+        if unlikely(start > self.capacity()) {
+            return Some(start);
+        }
+
+        base::first_unset_bit_from_offset(&self.data, start)
+    }
+
     /// Returns the current capacity in bits.
     ///
     /// This is the highest bit position that can be accessed without growing.
@@ -533,7 +624,7 @@ macro_rules! generate_small_bit_map_struct {
     (struct $name:ident<$bits:tt>) => {
         const __BLOCKS: usize = $crate::blocks_number_for_bits($bits);
 
-        pub struct $name($crate::SmallBitMap<__BLOCKS>);
+        pub struct $name(pub $crate::SmallBitMap<__BLOCKS>);
 
         impl $name {
             pub const fn new() -> Self {

@@ -184,10 +184,11 @@ pub use small::SmallBitMap;
 /// in debug builds or when the `more_checks` feature is enabled. This allows
 /// for comprehensive bounds checking during development while maintaining
 /// zero overhead in release builds.
+#[inline(always)]
 pub(crate) const fn maybe_assert(res: bool, msg: &'static str) {
-    assert!(
-        !cfg!(any(debug_assertions, feature = "more_checks")) || res,
-        "{}",
-        msg
-    );
+    if cfg!(any(debug_assertions, feature = "more_checks")) {
+        assert!(res, "{}", msg);
+    } else {
+        unsafe { core::hint::assert_unchecked(res) }
+    }
 }

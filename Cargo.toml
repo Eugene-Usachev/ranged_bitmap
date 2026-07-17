@@ -1,15 +1,17 @@
 [package]
 name = "ranged_bitmap"
-version = "1.2.0"
-edition = "2021"
+version = "1.3.0"
+edition = "2024"
 description = "A high-performance bitmap library"
 license = "MIT"
 repository = "https://github.com/Eugene-Usachev/ranged_bitmap"
 keywords = ["bitmap", "performance", "no_std", "constant-time"]
 categories = ["data-structures", "algorithms", "no-std"]
+rust-version = "1.85.0"
 
 [dependencies]
 smallvec = { version = ">=1.15.1, <= 1.16.0", features = ["const_new"] }
+orengine-utils = { version = ">=1.0.0" }
 
 [features]
 more_checks = []
