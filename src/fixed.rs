@@ -475,11 +475,12 @@ impl<const BLOCKS: usize> Default for FixedBitMap<BLOCKS> {
 /// ```rust
 /// use ranged_bitmap::generate_fixed_bit_map_struct;
 ///
-/// generate_fixed_bit_map_struct!(struct StructName<128>);
+/// generate_fixed_bit_map_struct!(pub(crate) struct StructName<128>);
 /// ```
 ///
 /// # Arguments
 ///
+/// * `$vis:vis` - Visibility modifier for the generated struct, or `pub(self)` by default.
 /// * `struct $name:ident` - The name of the struct to generate
 /// * `<$bits:tt>` - The number of bits the bitmap should contain
 ///
@@ -495,7 +496,7 @@ impl<const BLOCKS: usize> Default for FixedBitMap<BLOCKS> {
 /// ```rust
 /// use ranged_bitmap::generate_fixed_bit_map_struct;
 ///
-/// generate_fixed_bit_map_struct!(struct MyBitmap<256>);
+/// generate_fixed_bit_map_struct!(pub(crate) struct MyBitmap<256>);
 ///
 /// let mut bitmap = MyBitmap::new();
 /// bitmap.set(10);  // Uses Deref to access FixedBitMap methods
@@ -512,13 +513,14 @@ impl<const BLOCKS: usize> Default for FixedBitMap<BLOCKS> {
 /// deref coercion, which is optimized away by the compiler.
 #[macro_export]
 macro_rules! generate_fixed_bit_map_struct {
-    (struct $name:ident<$bits:tt>) => {
-        const __BLOCKS: usize = $crate::blocks_number_for_bits($bits);
+    ($vis:vis struct $name:ident<$bits:tt>) => {
+        $vis const __BLOCKS: usize = $crate::blocks_number_for_bits($bits);
 
-        pub struct $name(pub $crate::FixedBitMap<__BLOCKS>);
+        #[derive(Clone)]
+        $vis struct $name($vis $crate::FixedBitMap<__BLOCKS>);
 
         impl $name {
-            pub const fn new() -> Self {
+            $vis const fn new() -> Self {
                 Self($crate::FixedBitMap::new())
             }
         }
@@ -536,5 +538,9 @@ macro_rules! generate_fixed_bit_map_struct {
                 &mut self.0
             }
         }
+    };
+
+    (struct $name:ident<$bits:tt>) => {
+        generate_fixed_bit_map_struct!(pub(self), struct $name<$bits>)
     };
 }

@@ -24,15 +24,15 @@
 
 extern crate alloc;
 
-use crate::base::{
-    bitmap_check_range_is_set, bitmap_check_range_is_unset, bitmap_clear, bitmap_clear_range,
-    bitmap_count_ones, bitmap_count_zeros, bitmap_get, bitmap_set, bitmap_set_range,
-    calc_block_and_slot, BITS_IN_USIZE,
+use crate::base::{BITS_IN_USIZE,
+                  bitmap_check_range_is_set, bitmap_check_range_is_unset, bitmap_clear, bitmap_clear_range,
+                  bitmap_count_ones, bitmap_count_zeros, bitmap_get, bitmap_set, bitmap_set_range,
+                  calc_block_and_slot,
 };
+use crate::base;
 use alloc::vec;
 use orengine_utils::hints::unlikely;
 use smallvec::SmallVec;
-use crate::base;
 
 /// A bitmap that uses [`SmallVec`] for efficient storage with configurable inline capacity.
 ///
@@ -584,11 +584,12 @@ impl<const BLOCKS_ON_STACK: usize> Clone for SmallBitMap<BLOCKS_ON_STACK> {
 /// ```rust
 /// use ranged_bitmap::generate_small_bit_map_struct;
 ///
-/// generate_small_bit_map_struct!(struct StructName<256>);
+/// generate_small_bit_map_struct!(pub(crate) struct StructName<256>);
 /// ```
 ///
 /// # Arguments
 ///
+/// * `$vis:vis` - Visibility modifier for the generated struct, or `pub(self)` by default.
 /// * `struct $name:ident` - The name of the struct to generate
 /// * `<$bits:tt>` - The number of bits the bitmap should contain
 ///
@@ -604,7 +605,7 @@ impl<const BLOCKS_ON_STACK: usize> Clone for SmallBitMap<BLOCKS_ON_STACK> {
 /// ```rust
 /// use ranged_bitmap::generate_small_bit_map_struct;
 ///
-/// generate_small_bit_map_struct!(struct MySmallBitmap<256>);
+/// generate_small_bit_map_struct!(pub(crate) struct MySmallBitmap<256>);
 ///
 /// let mut bitmap = MySmallBitmap::new();
 /// bitmap.set(10);  // Uses Deref to access SmallBitMap methods
@@ -621,13 +622,14 @@ impl<const BLOCKS_ON_STACK: usize> Clone for SmallBitMap<BLOCKS_ON_STACK> {
 /// deref coercion, which is optimized away by the compiler.
 #[macro_export]
 macro_rules! generate_small_bit_map_struct {
-    (struct $name:ident<$bits:tt>) => {
-        const __BLOCKS: usize = $crate::blocks_number_for_bits($bits);
+    ($vis:vis struct $name:ident<$bits:tt>) => {
+        $vis const __BLOCKS: usize = $crate::blocks_number_for_bits($bits);
 
-        pub struct $name(pub $crate::SmallBitMap<__BLOCKS>);
+        #[derive(Clone)]
+        $vis struct $name($vis $crate::SmallBitMap<__BLOCKS>);
 
         impl $name {
-            pub const fn new() -> Self {
+            $vis const fn new() -> Self {
                 Self($crate::SmallBitMap::new())
             }
         }
@@ -645,6 +647,10 @@ macro_rules! generate_small_bit_map_struct {
                 &mut self.0
             }
         }
+    };
+
+    (struct $name:ident<$bits:tt>) => {
+        generate_small_bit_map_struct!(pub(self) struct $name<$bits>)
     };
 }
 
